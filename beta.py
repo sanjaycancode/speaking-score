@@ -212,6 +212,7 @@ class PTESpeakingScorer:
         # Use aligned words to provide more detailed feedback
         alignment = matcher.get_opcodes()
         alignment_feedback = self.generate_alignment_feedback(ref_tokens, skp_tokens, alignment)
+        print(json.dumps(alignment_feedback, indent=2))
 
         return band, alignment_feedback
 
@@ -248,7 +249,6 @@ class PTESpeakingScorer:
         fluency_band = self.fluency_score(words)
         content_band = pronunciation_band = None
         note = ''
-        alignment_feedback = None
 
         if reference_text:
             match task_type:
@@ -294,7 +294,7 @@ class PTESpeakingScorer:
             },
             "item_score": min(90, max(0, item_90)),
             "overall_remarks": overall_remarks,
-            'alignment_feedback': alignment_feedback or None,
+            'alignment_feedback': [alignment_feedback or None],
             "note": note
         }
 
