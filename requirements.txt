@@ -4,14 +4,7 @@ numpy
 phonemizer
 soundfile
 typing-extensions
-
 openai-whisper
-torch
-librosa
-numpy
-phonemizer
-soundfile
-typing-extensions
 fastapi[standard]
 pydantic
 requests
