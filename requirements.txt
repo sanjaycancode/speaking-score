@@ -12,6 +12,6 @@ numpy
 phonemizer
 soundfile
 typing-extensions
-fastapi
+fastapi[standard]
 pydantic
 requests

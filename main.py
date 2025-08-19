@@ -14,14 +14,9 @@ app.add_middleware(
     allow_headers=["*"],  # allow all headers
 )
 
-
 @app.get("/")
 def read_root():
     return {"Hello": "World"}
-
-
-
-
 
 @app.post("/speaking/read-aloud")
 async def score_speaking(
@@ -34,6 +29,7 @@ async def score_speaking(
     import tempfile
     import shutil
     import os
+    
     try:
         ext = os.path.splitext(audio_file.filename)[1].lower()
         if ext not in [".mp3", ".wav"]:
