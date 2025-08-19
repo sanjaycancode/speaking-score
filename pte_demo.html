@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>PTE Speaking Score Demo</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 40px;
+      }
+      textarea {
+        width: 100%;
+        height: 80px;
+      }
+      button {
+        margin-top: 10px;
+      }
+      #result {
+        margin-top: 20px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>PTE Speaking Score Demo</h2>
+    <label for="referenceText">Reference Text:</label><br />
+    <textarea
+      id="referenceText"
+      placeholder="Enter reference text..."
+    ></textarea
+    ><br />
+
+    <button id="recordBtn">Start Recording</button>
+    <button id="stopBtn" disabled>Stop Recording</button>
+    <br />
+    <audio
+      id="audioPlayback"
+      controls
+      style="margin-top: 10px; display: none"
+    ></audio>
+    <br />
+    <button id="sendBtn" disabled>Send to API</button>
+
+    <div id="result"></div>
+
+    <script>
+      let mediaRecorder;
+      let audioChunks = [];
+      let audioBlob;
+
+      const recordBtn = document.getElementById("recordBtn");
+      const stopBtn = document.getElementById("stopBtn");
+      const sendBtn = document.getElementById("sendBtn");
+      const audioPlayback = document.getElementById("audioPlayback");
+      const resultDiv = document.getElementById("result");
+
+      recordBtn.onclick = async () => {
+        audioChunks = [];
+        resultDiv.textContent = "";
+        sendBtn.disabled = true;
+        audioPlayback.style.display = "none";
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.start();
+        recordBtn.disabled = true;
+        stopBtn.disabled = false;
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          audioBlob = new Blob(audioChunks, { type: "audio/mp3" });
+          audioPlayback.src = URL.createObjectURL(audioBlob);
+          audioPlayback.style.display = "block";
+          sendBtn.disabled = false;
+        };
+      };
+
+      stopBtn.onclick = () => {
+        mediaRecorder.stop();
+        recordBtn.disabled = false;
+        stopBtn.disabled = true;
+      };
+
+      sendBtn.onclick = async () => {
+        const referenceText = document.getElementById("referenceText").value;
+        if (!referenceText || !audioBlob) {
+          resultDiv.textContent =
+            "Please provide reference text and record audio.";
+          return;
+        }
+        resultDiv.textContent = "Sending...";
+        const formData = new FormData();
+        // Use .mp3 extension for compatibility
+        formData.append("audio_file", audioBlob, "recording.mp3");
+        formData.append("reference_text", referenceText);
+        try {
+          const response = await fetch(
+            "http://127.0.0.1:8000/speaking/read-aloud",
+            {
+              method: "POST",
+              body: formData,
+            }
+          );
+          const data = await response.json();
+          resultDiv.textContent = JSON.stringify(data, null, 2);
+        } catch (err) {
+          resultDiv.textContent = "Error: " + err;
+        }
+      };
+    </script>
+  </body>
+</html>
