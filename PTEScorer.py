@@ -1,3 +1,5 @@
+import platform
+import os
 import whisper, json, re, warnings, difflib
 from phonemizer import phonemize
 from phonemizer.backend.espeak.wrapper import EspeakWrapper
@@ -5,10 +7,28 @@ from typing import Dict, List, Tuple
 from urllib.parse import urlparse
 import requests
 import tempfile
-import os
+
 
 warnings.filterwarnings("ignore")
-EspeakWrapper.set_library(r'C:\Program Files\eSpeak NG\libespeak-ng.dll')
+
+# Set eSpeak library path based on operating system
+if platform.system() == "Windows":
+    EspeakWrapper.set_library(r'C:\Program Files\eSpeak NG\libespeak-ng.dll')
+else:
+    # For Linux (Docker container)
+    espeak_lib_paths = [
+        '/usr/lib/x86_64-linux-gnu/libespeak-ng.so.1',
+        '/usr/lib/libespeak-ng.so.1',
+        '/usr/local/lib/libespeak-ng.so.1'
+    ]
+    
+    for lib_path in espeak_lib_paths:
+        if os.path.exists(lib_path):
+            EspeakWrapper.set_library(lib_path)
+            break
+    else:
+        # If no specific path found, let phonemizer find it automatically
+        pass
 
 
 SUGGESTIONS = {

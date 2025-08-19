@@ -7,4 +7,4 @@ typing-extensions
 openai-whisper
 fastapi[standard]
 pydantic
-requests
+requests 

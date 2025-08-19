@@ -1,4 +1,4 @@
-# Use official Python slim image
+# Use Python 3.10 slim image as base
 FROM python:3.10-slim
 
 # Set working directory
@@ -7,18 +7,27 @@ WORKDIR /app
 # Copy project files
 COPY . /app
 
-# Install system dependencies for phonemizer (espeak-ng) and whisper (ffmpeg)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    espeak-ng libespeak-ng1 libespeak-ng-dev ffmpeg \
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    # Audio processing dependencies
+    ffmpeg \
+    # eSpeak NG for phonemizer
+    espeak-ng \
+    espeak-ng-data \
+    # Build tools for Python packages
+    gcc \
+    g++ \
+    # Cleanup
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install Python dependencies
-RUN pip install --upgrade pip && \
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Expose FastAPI port
+
+# Expose the port FastAPI will run on
 EXPOSE 8000
 
-# Start FastAPI app with FastAPI CLI
-CMD ["fastapi", "dev", "main.py", "--host", "0.0.0.0", "--port", "8000"]
+# Run the FastAPI application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
