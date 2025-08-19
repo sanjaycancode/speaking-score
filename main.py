@@ -2,7 +2,7 @@ from typing import Union
 from fastapi import FastAPI
 from pydantic import BaseModel
 # from fastapi.middleware.cors import CORSMiddleware
-from pteScorerWithBand import PTESpeakingScorer
+from PTEScorer import SpeakingScorer
 
 app = FastAPI()
 
@@ -32,7 +32,7 @@ async def score_speaking(ReadAloud: ReadAloud):
     if not audio_url or not reference_text:
         return {"message": "Missing audio_url or reference_text", "status": 400}
 
-    scorer = PTESpeakingScorer("base")
+    scorer = SpeakingScorer("base")
     result = scorer.score_speaking_task(audio_url, reference_text, "read_aloud")
 
     return result

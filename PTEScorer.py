@@ -44,11 +44,11 @@ def pte_band(value: float, band_map: dict) -> int:
             return band_map[th]
     return min(band_map.values())
 
-class PTESpeakingScorer:
+class SpeakingScorer:
     def __init__(self, model_size: str = "base"):
         print("Initializing PTE Speaking Scorer...")
         self.whisper = whisper.load_model(model_size)
-        print("Whisper model loaded!")
+        print(f"Whisper '{model_size}' loaded!")
 
     def is_url(self, path: str) -> bool:
         """Check if the given path is a URL."""
@@ -133,19 +133,39 @@ class PTESpeakingScorer:
     def fluency_score(self, words: List[Dict]) -> int:
         if not words:
             return 0
-        dur = words[-1]["end"] - words[0]["start"]
-        wpm = (len(words)/max(dur,1e-6))*60
-        pauses=[w["start"]-words[i-1]["end"]
-                for i,w in enumerate(words) if i and w["start"]-words[i-1]["end"]>0.15]
-        long=len([p for p in pauses if p>1])
-        reps=sum(1 for i in range(1,len(words))
-                 if words[i]["word"].lower()==words[i-1]["word"].lower())
 
-        if 140<=wpm<=180 and long==0 and reps==0: band=5
-        elif 120<=wpm<=200 and long<=1 and reps<=1: band=4
-        elif 100<=wpm<=220 and long<=1 and reps<=3: band=3
-        elif len(words)>=6 and long<=1: band=2
-        else: band = 1 if len(words)>=3 else 0
+        # Calculate speech duration
+        dur = words[-1]["end"] - words[0]["start"]
+
+        # Calculate words per minute (WPM)
+        wpm = (len(words) / max(dur, 1e-6)) * 60
+
+        # Identify pauses longer than 0.15 seconds
+        pauses = [w["start"] - words[i - 1]["end"] for i, w in enumerate(words) if i and w["start"] - words[i - 1]["end"] > 0.15]
+
+        # Count long pauses (longer than 1 second)
+        long_pauses = len([p for p in pauses if p > 1])
+
+        # Count repetitions
+        repetitions = sum(1 for i in range(1, len(words)) if words[i]["word"].lower() == words[i - 1]["word"].lower())
+
+        # Count false starts (pauses shorter than 0.15 seconds)
+        false_starts = len([p for p in pauses if p <= 0.15])
+
+        # Assign fluency band based on PTE guidelines
+        if 140 <= wpm <= 180 and long_pauses == 0 and repetitions == 0 and false_starts == 0:
+            band = 5
+        elif 120 <= wpm <= 200 and long_pauses <= 1 and repetitions <= 1 and false_starts <= 1:
+            band = 4
+        elif 100 <= wpm <= 220 and long_pauses <= 1 and repetitions <= 3 and false_starts <= 3:
+            band = 3
+        elif len(words) >= 6 and long_pauses <= 1 and repetitions <= 3 and false_starts <= 3:
+            band = 2
+        elif len(words) >= 3 and long_pauses <= 2 and repetitions <= 5 and false_starts <= 5:
+            band = 1
+        else:
+            band = 0
+
         return band
 
 
@@ -300,7 +320,7 @@ class PTESpeakingScorer:
 
 # ----------  QUICK DEMO  ----------
 if __name__ == "__main__":
-    scorer = PTESpeakingScorer("base")
+    scorer = SpeakingScorer("base")
     # audio_path = r"C:\NCC\PTE\assets\qbf.mp3"
     audio_path = r"C:\NCC\PTE\assets\monologue.mp3"
     reference_text = open("C:/NCC/PTE/assets/monologue.txt", "r").read().strip()
