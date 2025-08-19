@@ -263,12 +263,12 @@ class PTESpeakingScorer:
 
         # PTE rule: Content = 0 → item = 0
         if content_band == 0:
-            item_90 = 0
+            overall_score = 0
             note = "Content band = 0 => overall 0 (PTE rule)"
         elif content_band is not None:
-            item_90 = int(round(((content_band + pronunciation_band + fluency_band) / 3) * 18))
+            overall_score = int(round(((content_band + pronunciation_band + fluency_band) / 3) * 18))
         else:
-            item_90 = int(round((fluency_band / 5) * 90))
+            overall_score = int(round((fluency_band / 5) * 90))
             note = "Fluency only (no reference provided)"
 
         overall_remarks = self.generate_overall_remarks(content_band, pronunciation_band, fluency_band)
@@ -292,7 +292,7 @@ class PTESpeakingScorer:
                     'remark': SUGGESTIONS["fluency"][fluency_band]
                 },
             },
-            "item_score": min(90, max(0, item_90)),
+            "item_score": min(90, max(0, overall_score)),
             "overall_remarks": overall_remarks,
             'alignment_feedback': alignment_feedback or None,
             "note": note
