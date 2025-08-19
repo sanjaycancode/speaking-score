@@ -102,11 +102,78 @@
             }
           );
           const data = await response.json();
-          resultDiv.textContent = JSON.stringify(data, null, 2);
+          resultDiv.innerHTML = renderResult(data);
         } catch (err) {
           resultDiv.textContent = "Error: " + err;
         }
       };
+
+      // Render result function
+      function renderResult(data) {
+        if (!data || data.status === 400 || data.status === 500) {
+          return `<div style='color:red;'>${data.message || "Error"}</div>`;
+        }
+        let html = `<h3>Score Summary</h3>`;
+        html += `<b>Task Type:</b> ${data.task_type || ""}<br>`;
+        html += `<b>Reference Text:</b> ${data.reference_text || ""}<br>`;
+        html += `<b>Spoken Text:</b> ${data.spoken_text || ""}<br>`;
+        html += `<b>Item Score:</b> <span style='color:green;'>${
+          data.item_score || ""
+        }</span><br>`;
+        html += `<b>Overall Remarks:</b> ${data.overall_remarks || ""}<br>`;
+        html += `<h4>Score Distribution</h4>`;
+        html += `<table border='1' cellpadding='5' style='border-collapse:collapse;'>`;
+        html += `<tr><th>Aspect</th><th>Score</th><th>Remark</th></tr>`;
+        for (const key of ["content", "pronunciation", "fluency"]) {
+          if (data.score_distribution && data.score_distribution[key]) {
+            html += `<tr><td>${
+              key.charAt(0).toUpperCase() + key.slice(1)
+            }</td><td>${data.score_distribution[key].score}</td><td>${
+              data.score_distribution[key].remark
+            }</td></tr>`;
+          }
+        }
+        html += `</table>`;
+        if (data.alignment_feedback && Array.isArray(data.alignment_feedback)) {
+          html += `<h4>Alignment Feedback</h4>`;
+          html += `<div style='display:flex;gap:20px;'>`;
+          html += `<div><b>Spoken:</b><br>`;
+          for (const item of data.alignment_feedback) {
+            let color = "#eee";
+            if (item.type === "correct") color = "#d4edda"; // green
+            else if (item.type === "missing") color = "#f8d7da"; // red
+            else if (item.type === "extra") color = "#ffe5b4"; // orange
+            else if (item.type === "replace") color = "#cce5ff"; // blue
+            html += `<span style='background:${color};padding:2px 6px;margin:2px;border-radius:4px;display:inline-block;'>${
+              (item.spoken || []).join(" ") || "&nbsp;"
+            }</span>`;
+          }
+          html += `</div>`;
+          html += `<div><b>Reference:</b><br>`;
+          for (const item of data.alignment_feedback) {
+            let color = "#eee";
+            if (item.type === "correct") color = "#d4edda"; // green
+            else if (item.type === "missing") color = "#f8d7da"; // red
+            else if (item.type === "extra") color = "#ffe5b4"; // orange
+            else if (item.type === "replace") color = "#cce5ff"; // blue
+            html += `<span style='background:${color};padding:2px 6px;margin:2px;border-radius:4px;display:inline-block;'>${
+              (item.ref || []).join(" ") || "&nbsp;"
+            }</span>`;
+          }
+          html += `</div>`;
+          html += `</div>`;
+          html += `<div style='margin-top:10px;font-size:0.95em;'>`;
+          html += `<span style='background:#d4edda;padding:2px 6px;border-radius:4px;'>Correct</span> `;
+          html += `<span style='background:#f8d7da;padding:2px 6px;border-radius:4px;'>Missing</span> `;
+          html += `<span style='background:#ffe5b4;padding:2px 6px;border-radius:4px;'>Extra</span> `;
+          html += `<span style='background:#cce5ff;padding:2px 6px;border-radius:4px;'>Replace</span>`;
+          html += `</div>`;
+        }
+        if (data.note) {
+          html += `<br><b>Note:</b> ${data.note}`;
+        }
+        return html;
+      }
     </script>
   </body>
 </html>
