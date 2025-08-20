@@ -1,6 +1,8 @@
+
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from PTEScorer import SpeakingScorer
+from util.api_helper import async_api_handler
 
 app = FastAPI()
 
@@ -17,34 +19,28 @@ app.add_middleware(
 def read_root():
     return {"Hello": "World"}
 
+
 @app.post("/speaking/read-aloud")
 async def score_speaking(
     audio_file: UploadFile = File(...),
     reference_text: str = Form(...)
 ):
-    if not audio_file or not reference_text:
-        return {"message": "Missing audio file or reference text", "status": 400}
-
-    import tempfile
-    import shutil
-    import os
-    
-    try:
+    async def process_request():
+        if not audio_file or not reference_text:
+            return {"error": "Missing audio file or reference text", "status": 400}
+        import tempfile
+        import shutil
+        import os
         ext = os.path.splitext(audio_file.filename)[1].lower()
         if ext not in [".mp3", ".wav"]:
-            ext = ".mp3"  # default to mp3 if unknown
+            ext = ".mp3"
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
             shutil.copyfileobj(audio_file.file, tmp)
             audio_path = tmp.name
-    except Exception as e:
-        return {"message": f"Error saving file: {e}", "status": 500}
-
-    scorer = SpeakingScorer("base")
-    try:
+        scorer = SpeakingScorer("base")
         result = scorer.score_speaking_task(audio_path, reference_text, "read_aloud")
-    except Exception as e:
-        return {"message": f"Error scoring: {e}", "status": 500}
+        return result
 
-    return result
+    return await async_api_handler(process_request)
  
     

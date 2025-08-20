@@ -87,106 +87,98 @@ class SpeakingScorer:
                 tmp.write(chunk)
             tmp.flush()
             return tmp.name
-        except requests.RequestException as e:
-            print(f"Failed to download audio: {e}")
-            return None
+        except Exception as e:
+            return {"error": f"Failed to download audio: {str(e)}"}
 
     # ----------  ASR  ----------
     def transcribe_audio(self, audio_src: str) -> Dict:
-        print("Transcribing audio with Whisper...")
-        audio_path = ''
-
-        if self.is_url(audio_src):
-            print("Downloading audio from URL...")
-            audio_path = self.download_audio(audio_src)
-            if not audio_path:
-                return {}  # Return empty dict if download failed
-
-            result = self.whisper.transcribe(audio_path, word_timestamps=True, language='en')
-
-              # Clean up the temporary file if it was downloaded
-            if bool(audio_path):
-                os.remove(audio_path)
-        else:
-            result = self.whisper.transcribe(audio_src, word_timestamps=True, language='en')
-
-        words = [
-            {"word": w["word"].strip(), "start": w["start"], "end": w["end"]}
-            for seg in result["segments"] for w in seg.get("words", [])
-        ]
-        
-        return {"text": result["text"], "words": words}
+        try:
+            audio_path = ''
+            if self.is_url(audio_src):
+                audio_path = self.download_audio(audio_src)
+                if isinstance(audio_path, dict) and "error" in audio_path:
+                    return {"error": audio_path["error"]}
+                if not audio_path:
+                    return {"error": "Audio download failed."}
+                result = self.whisper.transcribe(audio_path, word_timestamps=True, language='en')
+                if bool(audio_path):
+                    os.remove(audio_path)
+            else:
+                result = self.whisper.transcribe(audio_src, word_timestamps=True, language='en')
+            words = [
+                {"word": w["word"].strip(), "start": w["start"], "end": w["end"]}
+                for seg in result["segments"] for w in seg.get("words", [])
+            ]
+            return {"text": result["text"], "words": words}
+        except Exception as e:
+            return {"error": f"Transcription failed: {str(e)}"}
 
     # ----------  PHONEMES  ----------
     def convert_to_phonemes(self, text: str) -> List[str]:
-        if not text.strip():
-            return []
-        phones = phonemize(
-            re.sub(r"[^\w\s]", "", text.lower()),
-            language="en-us", 
-            backend="espeak",
-            strip=True, preserve_punctuation=False, with_stress=True
-        )
-        phoneme_list = phones.split()
-        return phoneme_list
+        try:
+            if not text.strip():
+                return []
+            phones = phonemize(
+                re.sub(r"[^\w\s]", "", text.lower()),
+                language="en-us", 
+                backend="espeak",
+                strip=True, preserve_punctuation=False, with_stress=True
+            )
+            phoneme_list = phones.split()
+            return phoneme_list
+        except Exception as e:
+            return [f"error: {str(e)}"]
     
 
       # ----------  PRONUNCIATION ----------
     def pronunciation_score(self, spoken_phoneme: List[str], ref_phoneme: List[str]) -> int:
-        if not spoken_phoneme or not ref_phoneme:
+        try:
+            if not spoken_phoneme or not ref_phoneme:
+                return 0
+            if any(isinstance(x, str) and x.startswith("error:") for x in spoken_phoneme + ref_phoneme):
+                return 0
+            def lev(a, b):
+                dp = [[0]*(len(b)+1) for _ in range(len(a)+1)]
+                for i in range(len(a)+1): dp[i][0]=i
+                for j in range(len(b)+1): dp[0][j]=j
+                for i in range(1,len(a)+1):
+                    for j in range(1,len(b)+1):
+                        dp[i][j]=min(dp[i-1][j]+1, dp[i][j-1]+1,
+                                     dp[i-1][j-1]+(a[i-1]!=b[j-1]))
+                return dp[len(a)][len(b)]
+            dist = lev(spoken_phoneme, ref_phoneme)
+            acc = 1 - dist / max(len(spoken_phoneme), len(ref_phoneme))
+            band = pte_band(acc*100, {95:5,80:4,60:3,40:2,20:1,0:0})
+            return band
+        except Exception as e:
             return 0
-        def lev(a, b):
-            dp = [[0]*(len(b)+1) for _ in range(len(a)+1)]
-            for i in range(len(a)+1): dp[i][0]=i
-            for j in range(len(b)+1): dp[0][j]=j
-            for i in range(1,len(a)+1):
-                for j in range(1,len(b)+1):
-                    dp[i][j]=min(dp[i-1][j]+1, dp[i][j-1]+1,
-                                 dp[i-1][j-1]+(a[i-1]!=b[j-1]))
-            return dp[len(a)][len(b)]
-        dist = lev(spoken_phoneme, ref_phoneme)
-        acc = 1 - dist / max(len(spoken_phoneme), len(ref_phoneme))
-        band = pte_band(acc*100, {95:5,80:4,60:3,40:2,20:1,0:0})
-        return band
 
     # ----------  FLUENCY ----------
     def fluency_score(self, words: List[Dict]) -> int:
-        if not words:
+        try:
+            if not words:
+                return 0
+            dur = words[-1]["end"] - words[0]["start"]
+            wpm = (len(words) / max(dur, 1e-6)) * 60
+            pauses = [w["start"] - words[i - 1]["end"] for i, w in enumerate(words) if i and w["start"] - words[i - 1]["end"] > 0.15]
+            long_pauses = len([p for p in pauses if p > 1])
+            repetitions = sum(1 for i in range(1, len(words)) if words[i]["word"].lower() == words[i - 1]["word"].lower())
+            false_starts = len([p for p in pauses if p <= 0.15])
+            if 140 <= wpm <= 180 and long_pauses == 0 and repetitions == 0 and false_starts == 0:
+                band = 5
+            elif 120 <= wpm <= 200 and long_pauses <= 1 and repetitions <= 1 and false_starts <= 1:
+                band = 4
+            elif 100 <= wpm <= 220 and long_pauses <= 1 and repetitions <= 3 and false_starts <= 3:
+                band = 3
+            elif len(words) >= 6 and long_pauses <= 1 and repetitions <= 3 and false_starts <= 3:
+                band = 2
+            elif len(words) >= 3 and long_pauses <= 2 and repetitions <= 5 and false_starts <= 5:
+                band = 1
+            else:
+                band = 0
+            return band
+        except Exception as e:
             return 0
-
-        # Calculate speech duration
-        dur = words[-1]["end"] - words[0]["start"]
-
-        # Calculate words per minute (WPM)
-        wpm = (len(words) / max(dur, 1e-6)) * 60
-
-        # Identify pauses longer than 0.15 seconds
-        pauses = [w["start"] - words[i - 1]["end"] for i, w in enumerate(words) if i and w["start"] - words[i - 1]["end"] > 0.15]
-
-        # Count long pauses (longer than 1 second)
-        long_pauses = len([p for p in pauses if p > 1])
-
-        # Count repetitions
-        repetitions = sum(1 for i in range(1, len(words)) if words[i]["word"].lower() == words[i - 1]["word"].lower())
-
-        # Count false starts (pauses shorter than 0.15 seconds)
-        false_starts = len([p for p in pauses if p <= 0.15])
-
-        # Assign fluency band based on PTE guidelines
-        if 140 <= wpm <= 180 and long_pauses == 0 and repetitions == 0 and false_starts == 0:
-            band = 5
-        elif 120 <= wpm <= 200 and long_pauses <= 1 and repetitions <= 1 and false_starts <= 1:
-            band = 4
-        elif 100 <= wpm <= 220 and long_pauses <= 1 and repetitions <= 3 and false_starts <= 3:
-            band = 3
-        elif len(words) >= 6 and long_pauses <= 1 and repetitions <= 3 and false_starts <= 3:
-            band = 2
-        elif len(words) >= 3 and long_pauses <= 2 and repetitions <= 5 and false_starts <= 5:
-            band = 1
-        else:
-            band = 0
-
-        return band
 
 
     # ----------  CONTENT  ----------
@@ -240,103 +232,113 @@ class SpeakingScorer:
         return feedback
 
     def content_read_aloud(self, spoken: str, ref: str) -> Tuple[int, List[Dict]]:
-        ref_tokens = self._tokens(ref)
-        skp_tokens = self._tokens(spoken)
-        matcher = difflib.SequenceMatcher(None, ref_tokens, skp_tokens)
-        errors = sum(max(i2 - i1, j2 - j1)
-                    for tag, i1, i2, j1, j2 in matcher.get_opcodes() if tag != "equal")
-        raw = max(0, len(ref_tokens) - errors)
-        acc = raw / max(1, len(ref_tokens))
-        band = pte_band(acc * 100, {95: 5, 80: 4, 60: 3, 40: 2, 20: 1, 0: 0})
-
-        # Use aligned words to provide more detailed feedback
-        alignment = matcher.get_opcodes()
-        alignment_feedback = self.generate_alignment_feedback(ref_tokens, skp_tokens, alignment)
-
-        return band, alignment_feedback
+        try:
+            ref_tokens = self._tokens(ref)
+            skp_tokens = self._tokens(spoken)
+            matcher = difflib.SequenceMatcher(None, ref_tokens, skp_tokens)
+            errors = sum(max(i2 - i1, j2 - j1)
+                        for tag, i1, i2, j1, j2 in matcher.get_opcodes() if tag != "equal")
+            raw = max(0, len(ref_tokens) - errors)
+            acc = raw / max(1, len(ref_tokens))
+            band = pte_band(acc * 100, {95: 5, 80: 4, 60: 3, 40: 2, 20: 1, 0: 0})
+            alignment = matcher.get_opcodes()
+            alignment_feedback = self.generate_alignment_feedback(ref_tokens, skp_tokens, alignment)
+            return band, alignment_feedback
+        except Exception as e:
+            return 0, [{"error": f"Content read aloud failed: {str(e)}"}]
 
     def content_repeat_sentence(self, spoken_text: str, ref_text: str) -> int:
-        ref_tokens = self._tokens(ref_text)
-        hyp_t = self._tokens(spoken_text)
-        matcher = difflib.SequenceMatcher(None, ref_tokens, hyp_t)
-        correct = sum(b.size for b in matcher.get_matching_blocks())
-        pct = (correct / max(1, len(ref_tokens))) * 100
-        band = pte_band(pct, {100: 3, 50: 2, 1: 1, 0: 0})
-        return band
+        try:
+            ref_tokens = self._tokens(ref_text)
+            skp_tokens = self._tokens(spoken_text)
+            matcher = difflib.SequenceMatcher(None, ref_tokens, skp_tokens)
+            correct = sum(b.size for b in matcher.get_matching_blocks())
+            pct = (correct / max(1, len(ref_tokens))) * 100
+            band = pte_band(pct, {100: 3, 50: 2, 1: 1, 0: 0})
+            return band
+        except Exception as e:
+            return 0
     
     def generate_overall_remarks(self, content_band: int, pronunciation_band: int, fluency_band: int) -> str:
-        # Generate a one-liner summary
-        if content_band == 0:
-            overall_remark = "Content score is 0, significantly impacting the overall score."
-        elif content_band == 5 and pronunciation_band == 5 and fluency_band == 5:
-            overall_remark = "Excellent performance in all areas!"
-        elif content_band >= 4 and pronunciation_band >= 4 and fluency_band >= 4:
-            overall_remark = "Very good performance with minor areas for improvement."
-        elif content_band >= 3 and pronunciation_band >= 3 and fluency_band >= 3:
-            overall_remark = "Good performance, but some areas need attention."
-        else:
-            overall_remark = "Needs improvement in multiple areas."
-
-        return overall_remark
+        try:
+            if content_band == 0:
+                overall_remark = "Content score is 0, significantly impacting the overall score."
+            elif content_band == 5 and pronunciation_band == 5 and fluency_band == 5:
+                overall_remark = "Excellent performance in all areas!"
+            elif content_band >= 4 and pronunciation_band >= 4 and fluency_band >= 4:
+                overall_remark = "Very good performance with minor areas for improvement."
+            elif content_band >= 3 and pronunciation_band >= 3 and fluency_band >= 3:
+                overall_remark = "Good performance, but some areas need attention."
+            else:
+                overall_remark = "Needs improvement in multiple areas."
+            return overall_remark
+        except Exception as e:
+            return f"Error generating remarks: {str(e)}"
 
     # ----------  6.  FULL TASK ----------
     def score_speaking_task(self, audio_src: str, reference_text: str=None,
                             task_type: str="read_aloud") -> Dict:
-        trans = self.transcribe_audio(audio_src)
-        spoken_text, words = trans["text"], trans["words"]
+        try:
+            trans = self.transcribe_audio(audio_src)
+            if "error" in trans:
+                return {"error": trans["error"]}
+            spoken_text, words = trans["text"], trans["words"]
+            fluency_band = self.fluency_score(words)
+            content_band = pronunciation_band = None
+            note = ''
+            alignment_feedback = None
 
-        fluency_band = self.fluency_score(words)
-        content_band = pronunciation_band = None
-        note = ''
-        alignment_feedback = None
+            if reference_text:
+                match task_type:
+                    case 'read_aloud':
+                        content_band, alignment_feedback = self.content_read_aloud(spoken_text, reference_text)
+                    case "repeat_sentence":
+                        content_band = self.content_repeat_sentence(spoken_text, reference_text)
+                ref_phoneme = self.convert_to_phonemes(reference_text)
+                spoken_phoneme = self.convert_to_phonemes(spoken_text)
+                pronunciation_band = self.pronunciation_score(spoken_phoneme, ref_phoneme)
+            if content_band == 0:
+                overall_score = 0
+                note = "Content band = 0 => overall 0 (PTE rule)"
+            elif content_band is not None:
+                overall_score = int(round(((content_band + pronunciation_band + fluency_band) / 3) * 18))
+            else:
+                overall_score = int(round((fluency_band / 5) * 90))
+                note = "Fluency only (no reference provided)"
+            overall_remarks = self.generate_overall_remarks(content_band, pronunciation_band, fluency_band)
 
-        if reference_text:
-            match task_type:
-                case 'read_aloud':
-                    content_band, alignment_feedback = self.content_read_aloud(spoken_text, reference_text)
-                case "repeat_sentence":
-                    content_band = self.content_repeat_sentence(spoken_text, reference_text)
-
-            ref_phoneme = self.convert_to_phonemes(reference_text)
-            spoken_phoneme = self.convert_to_phonemes(spoken_text)
-            pronunciation_band = self.pronunciation_score(spoken_phoneme, ref_phoneme)
-
-        # PTE rule: Content = 0 → item = 0
-        if content_band == 0:
-            overall_score = 0
-            note = "Content band = 0 => overall 0 (PTE rule)"
-        elif content_band is not None:
-            overall_score = int(round(((content_band + pronunciation_band + fluency_band) / 3) * 18))
-        else:
-            overall_score = int(round((fluency_band / 5) * 90))
-            note = "Fluency only (no reference provided)"
-
-        overall_remarks = self.generate_overall_remarks(content_band, pronunciation_band, fluency_band)
-
-        return {
-            "task_type": task_type,
-            "audio_src": audio_src,
-            "reference_text": reference_text,
-            "spoken_text": spoken_text,
-            "score_distribution": {
-                "content": {
-                    'score': content_band,
-                    'remark': SUGGESTIONS["content"][content_band]
+            def safe_remark(category, band):
+                try:
+                    return SUGGESTIONS[category][band]
+                except Exception:
+                    return f"No remark for band {band}"
+                
+            return {
+                "task_type": task_type,
+                "audio_src": audio_src,
+                "reference_text": reference_text,
+                "spoken_text": spoken_text,
+                "score_distribution": {
+                    "content": {
+                        'score': content_band,
+                        'remark': safe_remark("content", content_band)
+                    },
+                    "pronunciation": {
+                        'score': pronunciation_band,
+                        'remark':  safe_remark("pronunciation", pronunciation_band)
+                    },
+                    'fluency': {
+                        'score': fluency_band,
+                        'remark': safe_remark("fluency", fluency_band)
+                    },
                 },
-                "pronunciation": {
-                    'score': pronunciation_band,
-                    'remark':  SUGGESTIONS["pronunciation"][pronunciation_band]
-                },
-                'fluency': {
-                    'score': fluency_band,
-                    'remark': SUGGESTIONS["fluency"][fluency_band]
-                },
-            },
-            "item_score": min(90, max(0, overall_score)),
-            "overall_remarks": overall_remarks,
-            'alignment_feedback': alignment_feedback or None,
-            "note": note
-        }
+                "item_score": min(90, max(0, overall_score)),
+                "overall_remarks": overall_remarks,
+                'alignment_feedback': alignment_feedback or None,
+                "note": note
+            }
+        except Exception as e:
+            return {"error": f"Scoring failed: {str(e)}"}
 
 # ----------  QUICK DEMO  ----------
 if __name__ == "__main__":
